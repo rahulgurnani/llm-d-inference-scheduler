@@ -2,6 +2,23 @@
 
 This report provides a consolidated analysis of the performance and reliability of the **Endpoint Picker (EPP)** with multimodal cache affinity versus **Direct Kubernetes LoadBalancer Service** access across varying load levels (20, 30, and 40 RPS).
 
+---
+
+## Infrastructure Details
+
+The benchmarks were conducted on a GKE cluster with the following node configuration:
+
+| Pool | Machine Type | CPU | Memory | Accelerator (per node) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Model Server Pool** | **a3-highgpu-4g** | 104 vCPU | 1024 GB | **4x NVIDIA H100 GPUs** |
+| **Default Pool** | e2-standard-16 | 16 vCPU | 64 GB | - |
+
+**Deployment Topology:**
+- **Model Servers:** 6 replicas of `Qwen2.5-VL-7B-Instruct` distributed across the A3 nodes.
+- **Inference Gateway:** Deployed in the same cluster, utilizing the GKE Regional L7 Load Balancer.
+
+---
+
 ## Executive Summary
 Across all tested load levels, the EPP-managed traffic demonstrates **perfect reliability (100% success rate)** and **significantly lower latencies**. As the load increases, the performance gap between EPP and Direct access widens dramatically, particularly in tail latencies (p95), where EPP is up to **4.4x faster**.
 
