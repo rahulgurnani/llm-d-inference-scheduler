@@ -150,8 +150,8 @@ func (p *Producer) PrepareRequestData(ctx context.Context, request *scheduling.I
 		return nil
 	}
 
-	if request != nil && request.RequestId != "" {
-		p.requestStates.Set(request.RequestId, maps.Clone(hashToWeight), p.requestStateTTL)
+	if request != nil && request.RequestID != "" {
+		p.requestStates.Set(request.RequestID, maps.Clone(hashToWeight), p.requestStateTTL)
 	}
 
 	p.removeStalePods()
@@ -175,12 +175,12 @@ func (p *Producer) PrepareRequestData(ctx context.Context, request *scheduling.I
 // PreRequest records the selected endpoint(s) for each hash in the current request.
 func (p *Producer) PreRequest(ctx context.Context, request *scheduling.InferenceRequest, schedulingResult *scheduling.SchedulingResult) {
 	logger := log.FromContext(ctx).V(logging.DEBUG)
-	if request == nil || request.RequestId == "" {
+	if request == nil || request.RequestID == "" {
 		return
 	}
 
-	stateItem := p.requestStates.Get(request.RequestId)
-	p.requestStates.Delete(request.RequestId)
+	stateItem := p.requestStates.Get(request.RequestID)
+	p.requestStates.Delete(request.RequestID)
 	if stateItem == nil || len(stateItem.Value()) == 0 {
 		logger.Info("No multimodal request state found, skipping encoder-cache update")
 		return
@@ -270,10 +270,10 @@ func hashesFromAny(value any) map[string]int {
 
 func addBlockHash(hashToWeight map[string]int, block fwkrh.ContentBlock) {
 	switch {
-	case block.ImageURL.Url != "":
-		addMaxWeight(hashToWeight, contentHash("image_url", block.ImageURL.Url), 1)
-	case block.VideoURL.Url != "":
-		addMaxWeight(hashToWeight, contentHash("video_url", block.VideoURL.Url), 1)
+	case block.ImageURL.URL != "":
+		addMaxWeight(hashToWeight, contentHash("image_url", block.ImageURL.URL), 1)
+	case block.VideoURL.URL != "":
+		addMaxWeight(hashToWeight, contentHash("video_url", block.VideoURL.URL), 1)
 	case block.InputAudio.Data != "":
 		addMaxWeight(hashToWeight, contentHash("input_audio", block.InputAudio.Format+":"+block.InputAudio.Data), 1)
 	}

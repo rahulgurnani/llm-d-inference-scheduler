@@ -90,7 +90,7 @@ func (s *Scorer) Score(ctx context.Context, _ *scheduling.CycleState, req *sched
 	logger := log.FromContext(ctx).V(logging.DEBUG)
 	requestID := ""
 	if req != nil {
-		requestID = req.RequestId
+		requestID = req.RequestID
 	}
 	scores := make(map[scheduling.Endpoint]float64, len(endpoints))
 	for _, endpoint := range endpoints {

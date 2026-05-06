@@ -69,8 +69,8 @@ func TestExtractMMHashesWithWeightsFromStructuredChat(t *testing.T) {
 					Role: "user",
 					Content: fwkrh.Content{Structured: []fwkrh.ContentBlock{
 						{Type: "text", Text: "describe"},
-						{Type: "image_url", ImageURL: fwkrh.ImageBlock{Url: "https://example.com/cat.png"}},
-						{Type: "video_url", VideoURL: fwkrh.VideoBlock{Url: "https://example.com/cat.mp4"}},
+						{Type: "image_url", ImageURL: fwkrh.ImageBlock{URL: "https://example.com/cat.png"}},
+						{Type: "video_url", VideoURL: fwkrh.VideoBlock{URL: "https://example.com/cat.mp4"}},
 					}},
 				}},
 			},
@@ -192,7 +192,7 @@ func requestWithHashes(requestID string, hashToWeight map[string]int) *schedulin
 		features = append(features, fwkrh.MultiModalFeature{Hash: hash, Length: weight})
 	}
 	return &scheduling.InferenceRequest{
-		RequestId: requestID,
+		RequestID: requestID,
 		Body: &fwkrh.InferenceRequestBody{
 			TokenizedPrompt: &fwkrh.TokenizedPrompt{MultiModalFeatures: features},
 		},
