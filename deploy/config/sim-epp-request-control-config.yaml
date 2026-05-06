@@ -1,0 +1,36 @@
+# Sample EPP configuration demonstrating Request Control settings.
+#
+# This configures a custom timeout for PrepareData plugins (like the tokenizer)
+# and demonstrates how to provide parameters to those plugins even though they
+# are auto-configured by the system.
+apiVersion: inference.networking.x-k8s.io/v1alpha1
+kind: EndpointPickerConfig
+plugins:
+- name: my-tokenizer
+  type: tokenizer
+  parameters:
+    modelName: "${MODEL_NAME}"
+- type: precise-prefix-cache-scorer
+  parameters:
+    tokenProcessorConfig:
+      blockSize: 16
+      hashSeed: "42"
+    kvEventsConfig:
+      zmqEndpoint: tcp://0.0.0.0:5557
+    indexerConfig:
+      tokenizersPoolConfig:
+        modelName: "${MODEL_NAME}"
+        uds:
+          socketFile: "/tmp/tokenizer/tokenizer-uds.socket"
+- type: decode-filter
+- type: max-score-picker
+- type: single-profile-handler
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: max-score-picker
+  - pluginRef: precise-prefix-cache-scorer
+    weight: 10
+requestControl:
+  prepareDataTimeout: 1500ms
