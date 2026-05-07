@@ -22,7 +22,6 @@ package tokenizer
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -140,36 +139,41 @@ func (p *Plugin) Produces() map[string]any {
 	return map[string]any{TokenizedPromptKey: fwkrh.TokenizedPrompt{}}
 }
 
-// PrepareRequestData tokenizes the request prompt and stores the result on
+// Consumes returns the data keys this plugin requires.
+func (p *Plugin) Consumes() map[string]any {
+	return nil
+}
+
+// Produce tokenizes the request prompt and stores the result on
 // InferenceRequestBody.TokenizedPrompt (TokenIDs + MultiModalFeatures in flat shape).
-// Returns an error when tokenization fails; the caller (Director) decides the
-// policy (currently: log and continue). If the request already carries a
-// TokenizedPrompt, tokenization is skipped.
-func (p *Plugin) PrepareRequestData(ctx context.Context, request *scheduling.InferenceRequest, _ []scheduling.Endpoint) error {
-	tp, err := p.tokenize(ctx, request)
-	if err != nil {
-		return err
+// Fail-open: errors are logged; TokenizedPrompt is left nil. If the request
+// already carries a TokenizedPrompt, tokenization is skipped.
+func (p *Plugin) Produce(ctx context.Context, request *scheduling.InferenceRequest, _ []scheduling.Endpoint) error {
+	if request == nil || request.Body == nil || request.Body.TokenizedPrompt != nil {
+		return nil
 	}
 
-	request.Body.TokenizedPrompt = tp
+	tokenIDs, mmFeatures := p.tokenize(ctx, request)
+	if tokenIDs == nil {
+		return nil
+	}
+
+	request.Body.TokenizedPrompt = &fwkrh.TokenizedPrompt{
+		TokenIDs:           tokenIDs,
+		MultiModalFeatures: convertMMFeaturesToUpstream(mmFeatures),
+	}
 	return nil
 }
 
 // tokenize extracts token IDs and optional multimodal features from the request.
-// Returns the existing TokenizedPrompt unchanged if one is already set.
-// Returns a non-nil error if the request body is nil, has an unsupported type,
-// or if the tokenizer fails.
-func (p *Plugin) tokenize(ctx context.Context, request *scheduling.InferenceRequest) (*fwkrh.TokenizedPrompt, error) {
+// Returns (nil, nil) on error or unsupported type.
+func (p *Plugin) tokenize(ctx context.Context, request *scheduling.InferenceRequest) ([]uint32, *tokenization.MultiModalFeatures) {
 	logger := log.FromContext(ctx).WithName(p.typedName.String())
 	traceLogger := logger.V(logging.TRACE)
 
 	if request.Body == nil {
-		return nil, errors.New("request body is nil")
-	}
-
-	if request.Body.TokenizedPrompt != nil {
-		traceLogger.Info("TokenizedPrompt already present, skipping")
-		return request.Body.TokenizedPrompt, nil
+		traceLogger.Info("Request body is nil, skipping tokenization")
+		return nil, nil
 	}
 
 	traceLogger.Info("Request body present",
@@ -189,18 +193,17 @@ func (p *Plugin) tokenize(ctx context.Context, request *scheduling.InferenceRequ
 		traceLogger.Info("Calling RenderChat for chat completions", "messageCount", len(request.Body.ChatCompletions.Messages))
 		tokenIDs, mmFeatures, err = p.tokenizer.RenderChat(renderReq)
 	default:
-		return nil, errors.New("unsupported request body type, skipping tokenization")
+		traceLogger.Info("Unsupported request type, skipping tokenization")
+		return nil, nil
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("tokenization failed: %w", err)
+		logger.Error(err, "Tokenization failed, skipping")
+		return nil, nil
 	}
 
 	traceLogger.Info("Tokenization succeeded", "tokenCount", len(tokenIDs))
-	return &fwkrh.TokenizedPrompt{
-		TokenIDs:           tokenIDs,
-		MultiModalFeatures: convertMMFeaturesToUpstream(mmFeatures),
-	}, nil
+	return tokenIDs, mmFeatures
 }
 
 // ChatCompletionsToRenderChatRequest converts a ChatCompletionsRequest to a

@@ -29,7 +29,7 @@ import (
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/datalayer"
 	fwkplugin "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/requestcontrol"
-	fwksched "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
+	framework "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
 	attrconcurrency "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/plugins/datalayer/attribute/concurrency"
 	sourcenotifications "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/plugins/datalayer/source/notifications"
 )
@@ -96,7 +96,7 @@ func (p *InFlightLoadProducer) ExtractEndpoint(ctx context.Context, event datala
 	return nil
 }
 
-func (p *InFlightLoadProducer) PrepareRequestData(_ context.Context, _ *fwksched.InferenceRequest, endpoints []fwksched.Endpoint) error {
+func (p *InFlightLoadProducer) Produce(_ context.Context, _ *framework.InferenceRequest, endpoints []framework.Endpoint) error {
 	for _, e := range endpoints {
 		endpointID := e.GetMetadata().NamespacedName.String()
 		e.Put(attrconcurrency.InFlightLoadKey, &attrconcurrency.InFlightLoad{
@@ -107,7 +107,7 @@ func (p *InFlightLoadProducer) PrepareRequestData(_ context.Context, _ *fwksched
 	return nil
 }
 
-func (p *InFlightLoadProducer) PreRequest(_ context.Context, request *fwksched.InferenceRequest, result *fwksched.SchedulingResult) {
+func (p *InFlightLoadProducer) PreRequest(_ context.Context, request *framework.InferenceRequest, result *framework.SchedulingResult) {
 	if result == nil || len(result.ProfileResults) == 0 {
 		return
 	}
@@ -130,7 +130,7 @@ func (p *InFlightLoadProducer) PreRequest(_ context.Context, request *fwksched.I
 
 func (p *InFlightLoadProducer) ResponseBody(
 	ctx context.Context,
-	request *fwksched.InferenceRequest,
+	request *framework.InferenceRequest,
 	resp *requestcontrol.Response,
 	_ *datalayer.EndpointMetadata,
 ) {
@@ -167,7 +167,7 @@ func (p *InFlightLoadProducer) ResponseBody(
 	}
 }
 
-func (p *InFlightLoadProducer) release(endpoint fwksched.Endpoint, request *fwksched.InferenceRequest) {
+func (p *InFlightLoadProducer) release(endpoint framework.Endpoint, request *framework.InferenceRequest) {
 	if endpoint == nil || endpoint.GetMetadata() == nil {
 		return
 	}
@@ -181,6 +181,10 @@ func (p *InFlightLoadProducer) Produces() map[string]any {
 	return map[string]any{
 		attrconcurrency.InFlightLoadKey: attrconcurrency.InFlightLoad{},
 	}
+}
+
+func (p *InFlightLoadProducer) Consumes() map[string]any {
+	return nil
 }
 
 // DeleteEndpoint removes an endpoint from the concurrency trackers to prevent memory leaks.

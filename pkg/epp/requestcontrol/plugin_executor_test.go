@@ -26,24 +26,24 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	fwkplugin "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/plugin"
-	fwkrc "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/requestcontrol"
-	fwksched "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
+	fwk "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/requestcontrol"
+	schedulingtypes "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
 )
 
-var _ fwkrc.DataProducer = &mockPrepareRequestDataPlugin{}
+var _ fwk.DataProducer = &mockDataProducerPlugin{}
 
-type mockPrepareRequestDataPlugin struct {
+type mockDataProducerPlugin struct {
 	name      string
 	delay     time.Duration
 	returnErr error
 	executed  bool
 }
 
-func (m *mockPrepareRequestDataPlugin) TypedName() fwkplugin.TypedName {
+func (m *mockDataProducerPlugin) TypedName() fwkplugin.TypedName {
 	return fwkplugin.TypedName{Type: "mock", Name: m.name}
 }
 
-func (m *mockPrepareRequestDataPlugin) PrepareRequestData(ctx context.Context, request *fwksched.InferenceRequest, endpoints []fwksched.Endpoint) error {
+func (m *mockDataProducerPlugin) Produce(ctx context.Context, request *schedulingtypes.InferenceRequest, endpoints []schedulingtypes.Endpoint) error {
 	m.executed = true
 	if m.delay > 0 {
 		select {
@@ -55,7 +55,11 @@ func (m *mockPrepareRequestDataPlugin) PrepareRequestData(ctx context.Context, r
 	return m.returnErr
 }
 
-func (m *mockPrepareRequestDataPlugin) Produces() map[string]any {
+func (m *mockDataProducerPlugin) Produces() map[string]any {
+	return nil
+}
+
+func (m *mockDataProducerPlugin) Consumes() map[string]any {
 	return nil
 }
 
@@ -72,7 +76,7 @@ func (p *ctxObservingPlugin) TypedName() fwkplugin.TypedName {
 	return fwkplugin.TypedName{Type: "mock", Name: p.name}
 }
 
-func (p *ctxObservingPlugin) PrepareRequestData(ctx context.Context, _ *fwksched.InferenceRequest, _ []fwksched.Endpoint) error {
+func (p *ctxObservingPlugin) Produce(ctx context.Context, _ *schedulingtypes.InferenceRequest, _ []schedulingtypes.Endpoint) error {
 	defer p.wg.Done()
 	select {
 	case <-time.After(p.block):
@@ -83,22 +87,23 @@ func (p *ctxObservingPlugin) PrepareRequestData(ctx context.Context, _ *fwksched
 }
 
 func (p *ctxObservingPlugin) Produces() map[string]any { return nil }
+func (p *ctxObservingPlugin) Consumes() map[string]any { return nil }
 
-// TestPrepareDataPluginsWithTimeout_CancelsPluginContext verifies that the
+// TestDataProducerPluginsWithTimeout_CancelsPluginContext verifies that the
 // child context passed to plugins is cancelled with DeadlineExceeded when the
 // timeout fires. Without this cancellation, a slow plugin would continue
 // executing past the director's deadline and potentially commit state after
 // downstream hooks have already observed an "empty" state — the root cause of
 // the orphan-decrement drift we're fixing in the predicted-latency producer.
-func TestPrepareDataPluginsWithTimeout_CancelsPluginContext(t *testing.T) {
+func TestDataProducerPluginsWithTimeout_CancelsPluginContext(t *testing.T) {
 	plugin := &ctxObservingPlugin{name: "slow", block: time.Second}
 	plugin.wg.Add(1)
 
-	err := prepareDataPluginsWithTimeout(
+	err := dataProducerPluginsWithTimeout(
 		context.Background(),
 		20*time.Millisecond,
-		[]fwkrc.DataProducer{plugin},
-		&fwksched.InferenceRequest{},
+		[]fwk.DataProducer{plugin},
+		&schedulingtypes.InferenceRequest{},
 		nil,
 	)
 	assert.Error(t, err)
@@ -111,35 +116,35 @@ func TestPrepareDataPluginsWithTimeout_CancelsPluginContext(t *testing.T) {
 		"plugin's context should be cancelled with DeadlineExceeded when timeout fires")
 }
 
-func TestPrepareDataPluginsWithTimeout(t *testing.T) {
+func TestDataProducerPluginsWithTimeout(t *testing.T) {
 	testCases := []struct {
 		name          string
 		timeout       time.Duration
-		plugins       []fwkrc.DataProducer
+		plugins       []fwk.DataProducer
 		ctxFn         func() (context.Context, context.CancelFunc)
 		expectErrStr  string
-		checkPlugins  func(t *testing.T, plugins []fwkrc.DataProducer)
+		checkPlugins  func(t *testing.T, plugins []fwk.DataProducer)
 		expectSuccess bool
 	}{
 		{
 			name:    "success with one plugin",
 			timeout: 100 * time.Millisecond,
-			plugins: []fwkrc.DataProducer{
-				&mockPrepareRequestDataPlugin{name: "p1"},
+			plugins: []fwk.DataProducer{
+				&mockDataProducerPlugin{name: "p1"},
 			},
 			ctxFn: func() (context.Context, context.CancelFunc) {
 				return context.Background(), func() {}
 			},
 			expectSuccess: true,
-			checkPlugins: func(t *testing.T, plugins []fwkrc.DataProducer) {
-				assert.True(t, plugins[0].(*mockPrepareRequestDataPlugin).executed)
+			checkPlugins: func(t *testing.T, plugins []fwk.DataProducer) {
+				assert.True(t, plugins[0].(*mockDataProducerPlugin).executed)
 			},
 		},
 		{
 			name:    "plugin returns error",
 			timeout: 100 * time.Millisecond,
-			plugins: []fwkrc.DataProducer{
-				&mockPrepareRequestDataPlugin{name: "p1", returnErr: errors.New("plugin failed")},
+			plugins: []fwk.DataProducer{
+				&mockDataProducerPlugin{name: "p1", returnErr: errors.New("plugin failed")},
 			},
 			ctxFn: func() (context.Context, context.CancelFunc) {
 				return context.Background(), func() {}
@@ -149,8 +154,8 @@ func TestPrepareDataPluginsWithTimeout(t *testing.T) {
 		{
 			name:    "plugins time out",
 			timeout: 50 * time.Millisecond,
-			plugins: []fwkrc.DataProducer{
-				&mockPrepareRequestDataPlugin{name: "p1", delay: 100 * time.Millisecond},
+			plugins: []fwk.DataProducer{
+				&mockDataProducerPlugin{name: "p1", delay: 100 * time.Millisecond},
 			},
 			ctxFn: func() (context.Context, context.CancelFunc) {
 				return context.Background(), func() {}
@@ -160,8 +165,8 @@ func TestPrepareDataPluginsWithTimeout(t *testing.T) {
 		{
 			name:    "context cancelled",
 			timeout: 200 * time.Millisecond,
-			plugins: []fwkrc.DataProducer{
-				&mockPrepareRequestDataPlugin{name: "p1", delay: 100 * time.Millisecond},
+			plugins: []fwk.DataProducer{
+				&mockDataProducerPlugin{name: "p1", delay: 100 * time.Millisecond},
 			},
 			ctxFn: func() (context.Context, context.CancelFunc) {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -173,17 +178,17 @@ func TestPrepareDataPluginsWithTimeout(t *testing.T) {
 		{
 			name:    "multiple plugins success",
 			timeout: 100 * time.Millisecond,
-			plugins: []fwkrc.DataProducer{
-				&mockPrepareRequestDataPlugin{name: "p1"},
-				&mockPrepareRequestDataPlugin{name: "p2"},
+			plugins: []fwk.DataProducer{
+				&mockDataProducerPlugin{name: "p1"},
+				&mockDataProducerPlugin{name: "p2"},
 			},
 			ctxFn: func() (context.Context, context.CancelFunc) {
 				return context.Background(), func() {}
 			},
 			expectSuccess: true,
-			checkPlugins: func(t *testing.T, plugins []fwkrc.DataProducer) {
-				assert.True(t, plugins[0].(*mockPrepareRequestDataPlugin).executed)
-				assert.True(t, plugins[1].(*mockPrepareRequestDataPlugin).executed)
+			checkPlugins: func(t *testing.T, plugins []fwk.DataProducer) {
+				assert.True(t, plugins[0].(*mockDataProducerPlugin).executed)
+				assert.True(t, plugins[1].(*mockDataProducerPlugin).executed)
 			},
 		},
 	}
@@ -193,7 +198,7 @@ func TestPrepareDataPluginsWithTimeout(t *testing.T) {
 			ctx, cancel := tc.ctxFn()
 			defer cancel()
 
-			err := prepareDataPluginsWithTimeout(ctx, tc.timeout, tc.plugins, &fwksched.InferenceRequest{}, nil)
+			err := dataProducerPluginsWithTimeout(ctx, tc.timeout, tc.plugins, &schedulingtypes.InferenceRequest{}, nil)
 
 			if tc.expectSuccess {
 				assert.NoError(t, err)
@@ -210,18 +215,18 @@ func TestPrepareDataPluginsWithTimeout(t *testing.T) {
 }
 
 type dagTestPlugin struct {
-	mockPrepareRequestDataPlugin
+	mockDataProducerPlugin
 	produces map[string]any
 	consumes map[string]any
 	execTime time.Time
 	mu       sync.Mutex
 }
 
-func (p *dagTestPlugin) PrepareRequestData(ctx context.Context, request *fwksched.InferenceRequest, endpoints []fwksched.Endpoint) error {
+func (p *dagTestPlugin) Produce(ctx context.Context, request *schedulingtypes.InferenceRequest, endpoints []schedulingtypes.Endpoint) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.execTime = time.Now()
-	return p.mockPrepareRequestDataPlugin.PrepareRequestData(ctx, request, endpoints)
+	return p.mockDataProducerPlugin.Produce(ctx, request, endpoints)
 }
 
 func (p *dagTestPlugin) Produces() map[string]any {
@@ -234,48 +239,48 @@ func (p *dagTestPlugin) Consumes() map[string]any {
 
 func TestExecutePluginsAsDAG(t *testing.T) {
 	pluginA := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "A", delay: 20 * time.Millisecond},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "A", delay: 20 * time.Millisecond},
 		produces:                     map[string]any{"keyA": nil},
 	}
 	pluginB := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "B"},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "B"},
 		consumes:                     map[string]any{"keyA": nil},
 		produces:                     map[string]any{"keyB": nil},
 	}
 	pluginC := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "C"},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "C"},
 		consumes:                     map[string]any{"keyB": nil},
 	}
 	pluginD := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "D"},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "D"},
 		consumes:                     map[string]any{"keyA": nil},
 	}
 	pluginE := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "E"},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "E"},
 	}
 	pluginFail := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "Fail", returnErr: errors.New("plugin failed")},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "Fail", returnErr: errors.New("plugin failed")},
 		produces:                     map[string]any{"keyFail": nil},
 	}
 	pluginDependsOnFail := &dagTestPlugin{
-		mockPrepareRequestDataPlugin: mockPrepareRequestDataPlugin{name: "DependsOnFail"},
+		mockDataProducerPlugin: mockDataProducerPlugin{name: "DependsOnFail"},
 		consumes:                     map[string]any{"keyFail": nil},
 	}
 
 	testCases := []struct {
 		name      string
-		plugins   []fwkrc.DataProducer
+		plugins   []fwk.DataProducer
 		expectErr bool
-		checkFunc func(t *testing.T, plugins []fwkrc.DataProducer)
+		checkFunc func(t *testing.T, plugins []fwk.DataProducer)
 	}{
 		{
 			name:    "no plugins",
-			plugins: []fwkrc.DataProducer{},
+			plugins: []fwk.DataProducer{},
 		},
 		{
 			name:    "simple linear dependency (A -> B -> C)",
-			plugins: []fwkrc.DataProducer{pluginA, pluginB, pluginC},
-			checkFunc: func(t *testing.T, plugins []fwkrc.DataProducer) {
+			plugins: []fwk.DataProducer{pluginA, pluginB, pluginC},
+			checkFunc: func(t *testing.T, plugins []fwk.DataProducer) {
 				pA := plugins[0].(*dagTestPlugin)
 				pB := plugins[1].(*dagTestPlugin)
 				pC := plugins[2].(*dagTestPlugin)
@@ -290,8 +295,8 @@ func TestExecutePluginsAsDAG(t *testing.T) {
 		},
 		{
 			name:    "DAG with multiple dependencies (A -> B, A -> D) and one independent (E)",
-			plugins: []fwkrc.DataProducer{pluginA, pluginB, pluginD, pluginE},
-			checkFunc: func(t *testing.T, plugins []fwkrc.DataProducer) {
+			plugins: []fwk.DataProducer{pluginA, pluginB, pluginD, pluginE},
+			checkFunc: func(t *testing.T, plugins []fwk.DataProducer) {
 				pA := plugins[0].(*dagTestPlugin)
 				pB := plugins[1].(*dagTestPlugin)
 				pD := plugins[2].(*dagTestPlugin)
@@ -308,9 +313,9 @@ func TestExecutePluginsAsDAG(t *testing.T) {
 		},
 		{
 			name:      "dependency fails",
-			plugins:   []fwkrc.DataProducer{pluginFail, pluginDependsOnFail},
+			plugins:   []fwk.DataProducer{pluginFail, pluginDependsOnFail},
 			expectErr: true,
-			checkFunc: func(t *testing.T, plugins []fwkrc.DataProducer) {
+			checkFunc: func(t *testing.T, plugins []fwk.DataProducer) {
 				pF := plugins[0].(*dagTestPlugin)
 				pDOF := plugins[1].(*dagTestPlugin)
 
@@ -329,7 +334,7 @@ func TestExecutePluginsAsDAG(t *testing.T) {
 				plugin.execTime = time.Time{}
 			}
 
-			err := executePluginsAsDAG(context.Background(), tc.plugins, &fwksched.InferenceRequest{}, nil)
+			err := executePluginsAsDAG(context.Background(), tc.plugins, &schedulingtypes.InferenceRequest{}, nil)
 
 			if tc.expectErr {
 				assert.Error(t, err)

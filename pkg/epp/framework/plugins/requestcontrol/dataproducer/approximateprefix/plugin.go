@@ -28,7 +28,7 @@ import (
 	logutil "github.com/llm-d/llm-d-inference-scheduler/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/requestcontrol"
-	fwksched "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
+	framework "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
 	attrprefix "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/plugins/datalayer/attribute/prefix"
 	"github.com/llm-d/llm-d-inference-scheduler/pkg/epp/metrics"
 )
@@ -54,6 +54,11 @@ type prepareData struct {
 // TypedName returns the type and name of the plugin.
 func (p *prepareData) TypedName() plugin.TypedName {
 	return p.typedName
+}
+
+// Consumes returns the data consumed by the plugin.
+func (p *prepareData) Consumes() map[string]any {
+	return map[string]any{}
 }
 
 // Produces returns the data produced by the plugin.
@@ -131,8 +136,8 @@ func (p *prepareData) PluginState() *plugin.PluginState {
 	return p.pluginState
 }
 
-// PrepareRequestData is called by the director before scheduling requests.
-func (p *prepareData) PrepareRequestData(ctx context.Context, request *fwksched.InferenceRequest, pods []fwksched.Endpoint) error {
+// Produce is called by the director before scheduling requests.
+func (p *prepareData) Produce(ctx context.Context, request *framework.InferenceRequest, pods []framework.Endpoint) error {
 	blockSize := p.GetBlockSize(pods)
 	maxBlocks := p.config.MaxPrefixBlocksToMatch
 	if p.config.MaxPrefixTokensToMatch > 0 && blockSize > 0 {
@@ -161,7 +166,7 @@ func (p *prepareData) PrepareRequestData(ctx context.Context, request *fwksched.
 
 // PreRequest records in the shared indexer the result of the scheduling selection.
 // It updates the indexer with the prefix hashes for the selected endpoint(s).
-func (p *prepareData) PreRequest(ctx context.Context, request *fwksched.InferenceRequest, schedulingResult *fwksched.SchedulingResult) {
+func (p *prepareData) PreRequest(ctx context.Context, request *framework.InferenceRequest, schedulingResult *framework.SchedulingResult) {
 	// Delete the state to avoid memory leak.
 	defer p.pluginState.Delete(request.RequestID)
 	primaryProfileResult := schedulingResult.ProfileResults[schedulingResult.PrimaryProfileName]
@@ -177,7 +182,7 @@ func (p *prepareData) PreRequest(ctx context.Context, request *fwksched.Inferenc
 		servers = append(servers, p.makeserver(pr.TargetEndpoints[0]))
 	}
 
-	// Read state saved during PrepareRequestData.
+	// Read state saved during Produce.
 	state, err := plugin.ReadPluginStateKey[*SchedulingContextState](p.pluginState, request.RequestID, plugin.StateKey(ApproxPrefixCachePluginType))
 	if err != nil {
 		log.FromContext(ctx).Error(err, "failed to read prefix plugin state", "requestID", request.RequestID)
@@ -199,7 +204,7 @@ func (p *prepareData) PreRequest(ctx context.Context, request *fwksched.Inferenc
 	metrics.RecordPrefixCacheMatch(matchLen*blockSize*avgChars, total*blockSize*avgChars)
 }
 
-func (p *prepareData) makeserver(targetEndpoint fwksched.Endpoint) server {
+func (p *prepareData) makeserver(targetEndpoint framework.Endpoint) server {
 	gpuBlocks := defaultLRUCapacityPerServer
 	if p.config.AutoTune && targetEndpoint.GetMetrics().CacheNumBlocks > 0 {
 		gpuBlocks = targetEndpoint.GetMetrics().CacheNumBlocks
@@ -230,7 +235,7 @@ func (p *prepareData) matchLongestPrefix(ctx context.Context, hashes []blockHash
 }
 
 // GetBlockSize returns the block size in tokens, potentially auto-tuned from endpoint metrics.
-func (p *prepareData) GetBlockSize(endpoints []fwksched.Endpoint) int {
+func (p *prepareData) GetBlockSize(endpoints []framework.Endpoint) int {
 	if !p.config.AutoTune || len(endpoints) == 0 {
 		return p.config.BlockSizeTokens
 	}
