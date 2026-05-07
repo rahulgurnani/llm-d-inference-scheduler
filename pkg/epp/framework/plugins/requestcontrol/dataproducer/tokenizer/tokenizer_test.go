@@ -103,7 +103,7 @@ func TestPluginFactory_Validation(t *testing.T) {
 	}
 }
 
-func TestPrepareRequestData_PopulatesTokenizedPrompt(t *testing.T) {
+func TestProduce_PopulatesTokenizedPrompt(t *testing.T) {
 	mm := &tokenization.MultiModalFeatures{
 		MMHashes: map[string][]string{"image": {"hash-a", "hash-b"}},
 		MMPlaceholders: map[string][]kvblock.PlaceholderRange{
@@ -124,7 +124,7 @@ func TestPrepareRequestData_PopulatesTokenizedPrompt(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, p.PrepareRequestData(context.Background(), req, nil))
+	require.NoError(t, p.Produce(context.Background(), req, nil))
 	require.NotNil(t, req.Body.TokenizedPrompt)
 	assert.Equal(t, []uint32{1, 2, 3, 4}, req.Body.TokenizedPrompt.TokenIDs)
 	require.Len(t, req.Body.TokenizedPrompt.MultiModalFeatures, 2)
@@ -136,25 +136,25 @@ func TestPrepareRequestData_PopulatesTokenizedPrompt(t *testing.T) {
 	assert.Equal(t, fwkrh.ModalityImage, req.Body.TokenizedPrompt.MultiModalFeatures[0].Modality)
 }
 
-func TestPrepareRequestData_SkipsWhenAlreadyPopulated(t *testing.T) {
+func TestProduce_SkipsWhenAlreadyPopulated(t *testing.T) {
 	existing := &fwkrh.TokenizedPrompt{TokenIDs: []uint32{42}}
 	p := newTestPlugin(&mockTokenizer{})
 	req := &scheduling.InferenceRequest{
 		Body: &fwkrh.InferenceRequestBody{TokenizedPrompt: existing},
 	}
-	require.NoError(t, p.PrepareRequestData(context.Background(), req, nil))
+	require.NoError(t, p.Produce(context.Background(), req, nil))
 	assert.Same(t, existing, req.Body.TokenizedPrompt)
 }
 
-func TestPrepareRequestData_NilRequest(t *testing.T) {
+func TestProduce_NilRequest(t *testing.T) {
 	p := newTestPlugin(&mockTokenizer{})
-	require.NoError(t, p.PrepareRequestData(context.Background(), nil, nil))
+	require.NoError(t, p.Produce(context.Background(), nil, nil))
 }
 
-func TestPrepareRequestData_NilBody(t *testing.T) {
+func TestProduce_NilBody(t *testing.T) {
 	p := newTestPlugin(&mockTokenizer{})
 	req := &scheduling.InferenceRequest{}
-	require.NoError(t, p.PrepareRequestData(context.Background(), req, nil))
+	require.NoError(t, p.Produce(context.Background(), req, nil))
 }
 
 func TestConvertMMFeaturesRoundTrip(t *testing.T) {

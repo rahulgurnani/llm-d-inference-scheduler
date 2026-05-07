@@ -65,11 +65,11 @@ type ResponseBodyProcessor interface {
 }
 
 // DataProducer is implemented by data producers which produce data from different sources.
-// PrepareRequestData is called by the director before scheduling requests.
+// Produce is called by the director before scheduling requests.
 type DataProducer interface {
 	plugin.ProducerPlugin
 	plugin.ConsumerPlugin
-	PrepareRequestData(ctx context.Context, request *types.InferenceRequest, pods []types.Endpoint) error
+	Produce(ctx context.Context, request *types.InferenceRequest, pods []types.Endpoint) error
 }
 
 // Admitter is called by the director after the data producer and before scheduling.

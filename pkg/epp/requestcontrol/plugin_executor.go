@@ -30,17 +30,17 @@ import (
 // If there is a cycle or any plugin fails with error, it returns an error.
 func executePluginsAsDAG(ctx context.Context, plugins []fwk.DataProducer, request *schedulingtypes.InferenceRequest, endpoints []schedulingtypes.Endpoint) error {
 	for _, plugin := range plugins {
-		if err := plugin.PrepareRequestData(ctx, request, endpoints); err != nil {
+		if err := plugin.Produce(ctx, request, endpoints); err != nil {
 			return errors.New("prepare data plugin " + plugin.TypedName().String() + " failed: " + err.Error())
 		}
 	}
 	return nil
 }
 
-// prepareDataPluginsWithTimeout executes the PrepareRequestData plugins with retries and timeout.
+// dataProducerPluginsWithTimeout executes DataProducer plugins with a timeout.
 // The child context is cancelled when the timeout fires so plugins can observe cancellation
 // (e.g. abort outbound HTTP calls) and avoid committing state after the director has moved on.
-func prepareDataPluginsWithTimeout(ctx context.Context, timeout time.Duration, plugins []fwk.DataProducer,
+func dataProducerPluginsWithTimeout(ctx context.Context, timeout time.Duration, plugins []fwk.DataProducer,
 	request *schedulingtypes.InferenceRequest, endpoints []schedulingtypes.Endpoint) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

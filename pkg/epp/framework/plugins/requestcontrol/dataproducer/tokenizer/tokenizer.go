@@ -144,11 +144,11 @@ func (p *Plugin) Consumes() map[string]any {
 	return nil
 }
 
-// PrepareRequestData tokenizes the request prompt and stores the result on
+// Produce tokenizes the request prompt and stores the result on
 // InferenceRequestBody.TokenizedPrompt (TokenIDs + MultiModalFeatures in flat shape).
 // Fail-open: errors are logged; TokenizedPrompt is left nil. If the request
 // already carries a TokenizedPrompt, tokenization is skipped.
-func (p *Plugin) PrepareRequestData(ctx context.Context, request *scheduling.InferenceRequest, _ []scheduling.Endpoint) error {
+func (p *Plugin) Produce(ctx context.Context, request *scheduling.InferenceRequest, _ []scheduling.Endpoint) error {
 	if request == nil || request.Body == nil || request.Body.TokenizedPrompt != nil {
 		return nil
 	}
