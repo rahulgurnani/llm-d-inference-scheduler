@@ -19,19 +19,20 @@ package requestcontrol
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	fwk "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/requestcontrol"
 	schedulingtypes "github.com/llm-d/llm-d-inference-scheduler/pkg/epp/framework/interface/scheduling"
 )
 
-// executePluginsAsDAG executes PrepareData plugins as a DAG based on their dependencies asynchronously.
+// executePluginsAsDAG executes DataProducer plugins as a DAG based on their dependencies asynchronously.
 // So, a plugin is executed only after all its dependencies have been executed.
 // If there is a cycle or any plugin fails with error, it returns an error.
 func executePluginsAsDAG(ctx context.Context, plugins []fwk.DataProducer, request *schedulingtypes.InferenceRequest, endpoints []schedulingtypes.Endpoint) error {
 	for _, plugin := range plugins {
 		if err := plugin.Produce(ctx, request, endpoints); err != nil {
-			return errors.New("prepare data plugin " + plugin.TypedName().String() + " failed: " + err.Error())
+			return fmt.Errorf("data producer plugin %s failed: %w", plugin.TypedName().String(), err)
 		}
 	}
 	return nil
@@ -55,7 +56,7 @@ func dataProducerPluginsWithTimeout(ctx context.Context, timeout time.Duration, 
 		return err
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return errors.New("prepare data plugin timed out")
+			return errors.New("data producer plugin timed out")
 		}
 		return ctx.Err()
 	}
