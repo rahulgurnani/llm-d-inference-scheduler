@@ -47,3 +47,6 @@ vendor
 # Helm dependency artifacts
 config/charts/*/charts/
 config/charts/*/Chart.lock
+
+# Agent scratch space (plans, research, draft notes — not for PRs)
+/.agent-workspace/

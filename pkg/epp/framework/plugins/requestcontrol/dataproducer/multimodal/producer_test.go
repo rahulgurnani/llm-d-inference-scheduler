@@ -169,7 +169,7 @@ func TestExtractMMItemsIgnoresGenericResponsesAndConversationsContent(t *testing
 }
 
 func TestProduceMatchesMultiplePodsAndPreRequestUpdatesPlacement(t *testing.T) {
-	producer := newTestProducer(t, nil, nil)
+	producer := newTestProducer(t, nil)
 	podA := k8stypes.NamespacedName{Namespace: "default", Name: "pod-a"}
 	podB := k8stypes.NamespacedName{Namespace: "default", Name: "pod-b"}
 	podC := k8stypes.NamespacedName{Namespace: "default", Name: "pod-c"}
@@ -202,7 +202,7 @@ func TestProduceMatchesMultiplePodsAndPreRequestUpdatesPlacement(t *testing.T) {
 }
 
 func TestLRUEviction(t *testing.T) {
-	producer := newTestProducer(t, &Parameters{CacheSize: 2}, nil)
+	producer := newTestProducer(t, &Parameters{CacheSize: 2})
 	endpoint := newEndpoint(k8stypes.NamespacedName{Namespace: "default", Name: "pod-a"})
 
 	for _, hash := range []string{"hash-1", "hash-2", "hash-3"} {
@@ -220,8 +220,15 @@ func TestLRUEviction(t *testing.T) {
 func TestStalePodCleanup(t *testing.T) {
 	podA := k8stypes.NamespacedName{Namespace: "default", Name: "pod-a"}
 	podB := k8stypes.NamespacedName{Namespace: "default", Name: "pod-b"}
-	producer := newTestProducer(t, nil, func() []k8stypes.NamespacedName { return []k8stypes.NamespacedName{podA} })
+	producer := newTestProducer(t, nil)
 	producer.putCacheEntry("hash-a", podA, podB)
+
+	// Simulate pod-b deletion via the endpoint lifecycle event.
+	require.NoError(t, producer.ExtractEndpoint(context.Background(), fwkdl.EndpointEvent{
+		Type:     fwkdl.EventDelete,
+		Endpoint: fwkdl.NewEndpoint(&fwkdl.EndpointMetadata{NamespacedName: podB}, nil),
+	}))
+	assert.NotContains(t, producer.cacheSnapshot()["hash-a"], podB.String())
 
 	endpointA := newEndpoint(podA)
 	endpointB := newEndpoint(podB)
@@ -233,11 +240,10 @@ func TestStalePodCleanup(t *testing.T) {
 	assertMatchInfo(t, endpointB,
 		nil,
 		[]attrmm.MatchItem{{Hash: "hash-a", Size: 1}})
-	assert.NotContains(t, producer.cacheSnapshot()["hash-a"], podB.String())
 }
 
 func TestProducerEndpointExtractorInterfaceContract(t *testing.T) {
-	producer := newTestProducer(t, nil, nil)
+	producer := newTestProducer(t, nil)
 
 	assert.Equal(t, fwkdl.EndpointEventReflectType, producer.ExpectedInputType())
 	var _ fwkdl.EndpointExtractor = producer
@@ -247,7 +253,7 @@ func TestProducerEndpointExtractorInterfaceContract(t *testing.T) {
 func TestExtractEndpointRemovesDeletedPod(t *testing.T) {
 	podA := k8stypes.NamespacedName{Namespace: "default", Name: "pod-a"}
 	podB := k8stypes.NamespacedName{Namespace: "default", Name: "pod-b"}
-	producer := newTestProducer(t, nil, nil)
+	producer := newTestProducer(t, nil)
 	producer.putCacheEntry("hash-a", podA, podB)
 
 	err := producer.ExtractEndpoint(context.Background(), fwkdl.EndpointEvent{
@@ -262,8 +268,7 @@ func TestExtractEndpointRemovesDeletedPod(t *testing.T) {
 }
 
 type testHandle struct {
-	ctx     context.Context
-	podList func() []k8stypes.NamespacedName
+	ctx context.Context
 }
 
 func (h *testHandle) Context() context.Context {
@@ -285,15 +290,12 @@ func (h *testHandle) GetAllPluginsWithNames() map[string]plugin.Plugin {
 }
 
 func (h *testHandle) PodList() []k8stypes.NamespacedName {
-	if h.podList == nil {
-		return nil
-	}
-	return h.podList()
+	return nil
 }
 
-func newTestProducer(t *testing.T, params *Parameters, podList func() []k8stypes.NamespacedName) *Producer {
+func newTestProducer(t *testing.T, params *Parameters) *Producer {
 	t.Helper()
-	producer, err := New(context.Background(), params, podList)
+	producer, err := New(context.Background(), params)
 	require.NoError(t, err)
 	return producer
 }

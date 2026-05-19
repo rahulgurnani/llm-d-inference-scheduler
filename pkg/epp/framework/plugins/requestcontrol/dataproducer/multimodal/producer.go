@@ -40,6 +40,7 @@ import (
 	fwkrh "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
 	attrmm "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/multimodal"
+	sourcenotifications "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/source/notifications"
 	tokenproducer "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/tokenizer"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 )
@@ -58,6 +59,7 @@ var (
 	_ requestcontrol.DataProducer = &Producer{}
 	_ requestcontrol.PreRequest   = &Producer{}
 	_ fwkdl.EndpointExtractor     = &Producer{}
+	_ fwkdl.Registrant            = &Producer{}
 )
 
 // Parameters configures the multimodal encoder-cache data producer.
@@ -75,7 +77,7 @@ func Factory(name string, rawParameters json.RawMessage, handle plugin.Handle) (
 		}
 	}
 
-	p, err := New(handle.Context(), &parameters, handle.PodList)
+	p, err := New(handle.Context(), &parameters)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,6 @@ type Producer struct {
 	typedName   plugin.TypedName
 	cache       *lru.Cache[string, map[string]struct{}]
 	pluginState *plugin.PluginState
-	podList     func() []k8stypes.NamespacedName
 	mutex       sync.RWMutex
 }
 
@@ -104,7 +105,7 @@ func (s *requestState) Clone() plugin.StateData {
 }
 
 // New creates a Producer.
-func New(ctx context.Context, params *Parameters, podList func() []k8stypes.NamespacedName) (*Producer, error) {
+func New(ctx context.Context, params *Parameters) (*Producer, error) {
 	cacheSize := defaultCacheSize
 	if params != nil && params.CacheSize > 0 {
 		cacheSize = params.CacheSize
@@ -119,7 +120,6 @@ func New(ctx context.Context, params *Parameters, podList func() []k8stypes.Name
 		typedName:   plugin.TypedName{Type: ProducerType},
 		cache:       cache,
 		pluginState: plugin.NewPluginState(ctx),
-		podList:     podList,
 	}, nil
 }
 
@@ -149,6 +149,17 @@ func (p *Producer) PluginState() *plugin.PluginState {
 	return p.pluginState
 }
 
+// RegisterDependencies wires this producer into the endpoint lifecycle event stream
+// so that ExtractEndpoint is called immediately when a pod is deleted.
+func (p *Producer) RegisterDependencies(r fwkdl.Registrar) error {
+	return r.Register(fwkdl.PendingRegistration{
+		Owner:         p.TypedName(),
+		SourceType:    sourcenotifications.EndpointNotificationSourceType,
+		Extractor:     p,
+		DefaultSource: sourcenotifications.NewEndpointDataSource(sourcenotifications.EndpointNotificationSourceType, sourcenotifications.EndpointNotificationSourceType),
+	})
+}
+
 // Produce attaches multimodal encoder-cache match data to endpoints.
 func (p *Producer) Produce(ctx context.Context, request *scheduling.InferenceRequest, endpoints []scheduling.Endpoint) error {
 	logger := log.FromContext(ctx).V(logging.DEBUG)
@@ -161,8 +172,6 @@ func (p *Producer) Produce(ctx context.Context, request *scheduling.InferenceReq
 	if request != nil && request.RequestID != "" {
 		p.pluginState.Write(request.RequestID, plugin.StateKey(ProducerType), &requestState{items: requestItems})
 	}
-	// TODO(#1144): Removal of stale pods should happen in background for better performance.
-	p.removeStalePods()
 	for _, endpoint := range endpoints {
 		metadata := endpoint.GetMetadata()
 		if metadata == nil {
@@ -268,39 +277,6 @@ func (p *Producer) matchedItemsForPod(pod string, requestItems []attrmm.MatchIte
 		}
 	}
 	return sortedItems(matchedItemsByHash)
-}
-
-func (p *Producer) removeStalePods() {
-	if p.podList == nil {
-		return
-	}
-	podList := p.podList()
-	if len(podList) == 0 {
-		return
-	}
-	validPods := make(map[string]struct{}, len(podList))
-	for _, pod := range podList {
-		validPods[pod.String()] = struct{}{}
-	}
-
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	for _, hash := range p.cache.Keys() {
-		pods, ok := p.cache.Get(hash)
-		if !ok {
-			continue
-		}
-		for pod := range pods {
-			if _, ok := validPods[pod]; !ok {
-				delete(pods, pod)
-			}
-		}
-		if len(pods) == 0 {
-			p.cache.Remove(hash)
-			continue
-		}
-		p.cache.Add(hash, pods)
-	}
 }
 
 // ExpectedInputType declares the endpoint lifecycle event type this extractor consumes.
