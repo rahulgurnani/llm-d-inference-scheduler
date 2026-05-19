@@ -25,6 +25,8 @@ import (
 	"github.com/llm-d/llm-d-router/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
+	attrmm "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/multimodal"
+	"github.com/llm-d/llm-d-router/pkg/epp/metrics"
 )
 
 // PreRequest records the selected endpoint(s) for each hash in the current request.
@@ -45,6 +47,12 @@ func (p *Producer) PreRequest(ctx context.Context, request *scheduling.Inference
 	if len(targets) == 0 {
 		logger.Info("No target endpoints found, skipping encoder-cache update")
 		return
+	}
+
+	if raw, ok := targets[0].Get(attrmm.EncoderCacheMatchInfoKey); ok {
+		if matchInfo, ok := raw.(*attrmm.EncoderCacheMatchInfo); ok {
+			metrics.RecordEncoderCacheMatch(len(matchInfo.MatchedItems()), len(matchInfo.RequestItems()))
+		}
 	}
 
 	p.mutex.Lock()

@@ -375,6 +375,26 @@ var (
 		},
 		[]string{},
 	)
+
+	encoderCacheHitRatio = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: inferenceExtension,
+			Name:      "encoder_cache_hit_ratio",
+			Help:      metricsutil.HelpMsgWithStability("Ratio of multimodal items matched to total request items in the encoder-cache lookup.", compbasemetrics.ALPHA),
+			Buckets:   []float64{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
+		},
+		[]string{},
+	)
+
+	encoderCacheHitItems = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: inferenceExtension,
+			Name:      "encoder_cache_hit_items",
+			Help:      metricsutil.HelpMsgWithStability("Number of multimodal items matched in the encoder-cache lookup.", compbasemetrics.ALPHA),
+			Buckets:   []float64{0, 1, 2, 4, 8, 16, 32, 64},
+		},
+		[]string{},
+	)
 )
 
 // --- Info Metrics ---
@@ -504,6 +524,8 @@ func Register(customCollectors ...prometheus.Collector) {
 		metrics.Registry.MustRegister(prefixCacheSize)
 		metrics.Registry.MustRegister(prefixCacheHitRatio)
 		metrics.Registry.MustRegister(prefixCacheHitLength)
+		metrics.Registry.MustRegister(encoderCacheHitRatio)
+		metrics.Registry.MustRegister(encoderCacheHitItems)
 		metrics.Registry.MustRegister(flowControlRequestQueueDuration)
 		metrics.Registry.MustRegister(flowControlDispatchCycleDuration)
 		metrics.Registry.MustRegister(flowControlQueueSize)
@@ -555,6 +577,8 @@ func Reset() {
 	prefixCacheSize.Reset()
 	prefixCacheHitRatio.Reset()
 	prefixCacheHitLength.Reset()
+	encoderCacheHitRatio.Reset()
+	encoderCacheHitItems.Reset()
 	flowControlRequestQueueDuration.Reset()
 	flowControlQueueSize.Reset()
 	flowControlQueueBytes.Reset()
@@ -837,6 +861,16 @@ func RecordPrefixCacheMatch(matchedLength, totalLength int) {
 	if totalLength > 0 {
 		ratio := float64(matchedLength) / float64(totalLength)
 		prefixCacheHitRatio.WithLabelValues().Observe(ratio)
+	}
+}
+
+// RecordEncoderCacheMatch records the hit ratio and matched item count for a multimodal encoder-cache lookup.
+// matchedItems is the number of request items found in the encoder cache for the chosen endpoint.
+// totalItems is the total number of unique multimodal items in the request.
+func RecordEncoderCacheMatch(matchedItems, totalItems int) {
+	encoderCacheHitItems.WithLabelValues().Observe(float64(matchedItems))
+	if totalItems > 0 {
+		encoderCacheHitRatio.WithLabelValues().Observe(float64(matchedItems) / float64(totalItems))
 	}
 }
 
