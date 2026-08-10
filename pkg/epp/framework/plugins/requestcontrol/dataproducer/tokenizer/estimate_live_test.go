@@ -45,13 +45,16 @@ var resolutionDims = map[string][2]int{
 	"1080p": {1920, 1080},
 }
 
-// videoEstimateEndpointEnv names the env var holding the vLLM endpoint
+// videoEstimateEndpointEnv names the env var holding the SGLang or vLLM endpoint
 // (host:port) for the live comparison. Tests are skipped unless it is set.
-const videoEstimateEndpointEnv = "VIDEO_ESTIMATE_ENDPOINT"
+const (
+	sglangEstimateEndpointEnv = "SGLANG_ESTIMATE_ENDPOINT"
+	videoEstimateEndpointEnv  = "VIDEO_ESTIMATE_ENDPOINT"
+)
 
 // videoModelCase describes a model-specific live video estimation setup: the
 // served model name and the estimator configuration to compare against the
-// server at videoEstimateEndpointEnv.
+// server at sglangEstimateEndpointEnv or videoEstimateEndpointEnv.
 //
 // qwen3-vl scales tokens with resolution (dynamic tokens-per-frame) and samples
 // ~2fps merging frame pairs. gemma-4 uses a fixed per-frame cost regardless of
@@ -190,13 +193,17 @@ func download(ctx context.Context, client *http.Client, url string) ([]byte, err
 	return io.ReadAll(resp.Body)
 }
 
-// liveEndpoint resolves the vLLM endpoint (host:port) from
-// videoEstimateEndpointEnv. The test is skipped unless it is set.
+// liveEndpoint resolves the SGLang or vLLM endpoint (host:port) from
+// sglangEstimateEndpointEnv or videoEstimateEndpointEnv. The test is skipped
+// unless one of them is set.
 func liveEndpoint(t *testing.T) string {
 	t.Helper()
-	endpoint := os.Getenv(videoEstimateEndpointEnv)
+	endpoint := os.Getenv(sglangEstimateEndpointEnv)
 	if endpoint == "" {
-		t.Skipf("set %s (host:port of a vLLM server) to run the live comparison", videoEstimateEndpointEnv)
+		endpoint = os.Getenv(videoEstimateEndpointEnv)
+	}
+	if endpoint == "" {
+		t.Skipf("set %s or %s (host:port of an SGLang or vLLM server) to run the live comparison", sglangEstimateEndpointEnv, videoEstimateEndpointEnv)
 	}
 	return endpoint
 }

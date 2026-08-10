@@ -343,6 +343,45 @@ func TestVideoEstimator_Qwen3AndGemma4(t *testing.T) {
 	assert.Equal(t, 16*256, tp.MultiModalFeatures[0].Length, "gemma4-shaped video length")
 }
 
+// TestVideoEstimator_SGLang_VLMConfigs asserts that video placeholder counts
+// computed for common SGLang VLM deployments (e.g., Qwen2.5-VL / Qwen3-VL with
+// temporal merge and Gemma-4 with SigLIP static tokens) match expected token counts.
+func TestVideoEstimator_SGLang_VLMConfigs(t *testing.T) {
+	// SGLang Qwen2.5-VL / Qwen3-VL configuration: 2 FPS sampling, temporal patch size of 2,
+	// dynamic tokens per frame (factor 1024).
+	sglangQwen := estimateBackend{vid: newVideoEstimator(&estimateConfig{Video: &videoEstimateConfig{
+		DefaultResolution: &resolution{Width: 640, Height: 480},
+		DefaultDuration:   10,
+		TokensPerFrame:    &tokensPerFrameConfig{Mode: videoTPFModeDynamic, Dynamic: &tokensPerFrameDynamicMode{Factor: 1024}},
+		Frames: &framesConfig{
+			Mode:      videoFramesModeSampled,
+			MinFrames: 4,
+			Sampled:   &framesSampledMode{SampleFPS: 2, TemporalPatchSize: 2},
+		},
+		MaxVideoTokens: 100000,
+	}})}
+	tp, err := sglangQwen.produce(context.Background(), chatVideoBody("https://example.com/clip.mp4"))
+	require.NoError(t, err)
+	// 10s * 2 fps = 20 frames / 2 temporal merge = 10 token groups.
+	// 640*480 / 1024 = 300 tokens per frame. Total = 10 * 300 = 3000 tokens.
+	assert.Equal(t, 10*((640*480)/1024), tp.MultiModalFeatures[0].Length, "SGLang Qwen-VL video length")
+
+	// SGLang Gemma-4 configuration: strided frames, 4-stride, max 8 frames, static 296 tokens per frame.
+	sglangGemma := estimateBackend{vid: newVideoEstimator(&estimateConfig{Video: &videoEstimateConfig{
+		DefaultDuration: 10,
+		TokensPerFrame:  &tokensPerFrameConfig{Mode: videoTPFModeStatic, Static: &tokensPerFrameStaticMode{NumTokensPerFrame: 296}},
+		Frames: &framesConfig{
+			Mode:      videoFramesModeStrided,
+			MaxFrames: 8,
+			Strided:   &framesStridedMode{DefaultSourceFPS: 24, FrameStride: 4},
+		},
+	}})}
+	tp, err = sglangGemma.produce(context.Background(), chatVideoBody("https://example.com/clip.mp4"))
+	require.NoError(t, err)
+	// min(10*24/4 = 60, 8) = 8 frames * 296 tokens = 2368 tokens.
+	assert.Equal(t, 8*296, tp.MultiModalFeatures[0].Length, "SGLang Gemma-4 video length")
+}
+
 // TestParseVideoMetadataHeaders covers full, partial, missing, and malformed
 // header sets, and the accepted resolution formats.
 func TestParseVideoMetadataHeaders(t *testing.T) {
